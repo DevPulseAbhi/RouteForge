@@ -1,0 +1,8 @@
+streamlit>=1.36,<2
+folium>=0.17,<1
+streamlit-folium>=0.22,<1
+osmnx>=1.9,<2
+networkx>=3.3,<4
+plotly>=5.22,<6
+pandas>=2.2,<3
+pytest>=8,<9

@@ -1,0 +1,60 @@
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+
+# Virtual environments
+.venv/
+.venv*/
+venv/
+env/
+ENV/
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+.streamlit/secrets.toml
+
+# Streamlit and local application state
+.streamlit/cache/
+.streamlit/*.json
+
+# OSMnx and downloaded geospatial caches
+cache/
+osmnx_cache/
+*.osm.pbf
+*.gpkg
+*.geojson
+*.shp
+*.shx
+*.dbf
+*.prj
+
+# Generated exports and reports
+route_path.csv
+algorithm_comparison.csv
+*.log
+reports/
+outputs/
+
+# IDE and editor files
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.swp
+*.swo
+
+# Operating-system files
+.DS_Store
+Thumbs.db
+desktop.ini
