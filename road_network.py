@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from copy import deepcopy
 from functools import lru_cache
+from hashlib import sha256
 from math import asin, cos, hypot, radians, sin, sqrt
+from pathlib import Path
 import re
 from time import sleep
 from typing import Any
@@ -20,8 +22,9 @@ else:
     _OSMNX_IMPORT_ERROR = None
 
 
-MAX_ROUTE_DISTANCE_KM = 60.0
-DEFAULT_PADDING_METRES = 2500
+DEFAULT_RADIUS_KM = 60
+NETWORK_PADDING_METRES = 2500
+CACHE_DIRECTORY = Path(__file__).resolve().parent / "cache" / "graphs"
 
 
 def _great_circle_km(start: tuple[float, float], end: tuple[float, float]) -> float:
@@ -58,6 +61,41 @@ def _configure_osmnx() -> None:
         ox.settings.use_cache = True
         ox.settings.requests_timeout = 90
         ox.settings.http_user_agent = "RouteForge-college-project/1.0"
+
+
+def radius_to_metres(radius_km: int | float) -> int:
+    if radius_km <= 0:
+        raise ValueError("Search radius must be positive.")
+    return int(round(float(radius_km) * 1000))
+
+
+def _graph_cache_path(
+    start: tuple[float, float],
+    destination: tuple[float, float],
+    radius_km: int | float,
+) -> Path:
+    cache_key = "|".join(
+        [
+            f"{start[0]:.6f}",
+            f"{start[1]:.6f}",
+            f"{destination[0]:.6f}",
+            f"{destination[1]:.6f}",
+            str(radius_km),
+            "drive",
+        ]
+    )
+    digest = sha256(cache_key.encode("utf-8")).hexdigest()[:20]
+    return CACHE_DIRECTORY / f"{digest}.graphml"
+
+
+def _load_cached_graph(path: Path) -> nx.MultiDiGraph | None:
+    if not path.exists():
+        return None
+    try:
+        graph = ox.load_graphml(path)
+    except Exception:
+        return None
+    return graph if graph.number_of_nodes() else None
 
 
 def _download_with_retries(loader):
@@ -145,12 +183,12 @@ def retrieve_graph_for_locations(
     start: tuple[float, float],
     destination: tuple[float, float],
     padding_degrees: float = 0.015,
+    radius_km: int | float = DEFAULT_RADIUS_KM,
 ) -> nx.MultiDiGraph:
     """Download one bounded graph whose network contains both endpoints.
 
-    Short city routes use a radius around the midpoint. Wider but still
-    practical routes use a bounded bbox. This avoids the old fixed 13 km
-    rejection while preventing accidental country-sized downloads.
+    The selected radius is both the maximum supported endpoint separation and
+    the OSMnx search radius in metres. Cached GraphML is reused when available.
     """
     if ox is None:
         raise RuntimeError(
@@ -163,40 +201,40 @@ def retrieve_graph_for_locations(
     _validate_coordinates(start_lat, start_lon)
     _validate_coordinates(end_lat, end_lon)
     _configure_osmnx()
+    radius_metres = radius_to_metres(radius_km)
     distance_km = _great_circle_km(start, destination)
-    if distance_km > MAX_ROUTE_DISTANCE_KM:
+    if distance_km > float(radius_km):
         raise ValueError(
             f"These locations are about {distance_km:.0f} km apart. "
-            "RouteForge intentionally limits downloads to a bounded city or regional study area. "
-            "Choose locations within 60 km for a reliable demonstration."
+            f"Choose a larger search radius than {radius_km:g} km."
         )
-    padding_degrees = max(padding_degrees, DEFAULT_PADDING_METRES / 111_000)
-    padding_km = padding_degrees * 111
+    cache_path = _graph_cache_path(start, destination, radius_km)
+    cached_graph = _load_cached_graph(cache_path)
+    if cached_graph is not None:
+        return cached_graph
+    padding_degrees = max(padding_degrees, NETWORK_PADDING_METRES / 111_000)
     midpoint = ((start_lat + end_lat) / 2, (start_lon + end_lon) / 2)
     try:
-        if distance_km <= 25:
-            graph = _download_with_retries(
-                lambda: ox.graph_from_point(
-                    midpoint,
-                    dist=int((distance_km * 1000 / 2) + (padding_km * 1000)),
-                    network_type="drive",
-                    simplify=True,
-                )
+        graph = _download_with_retries(
+            lambda: ox.graph_from_point(
+                midpoint,
+                dist=radius_metres,
+                network_type="drive",
+                simplify=True,
             )
-        else:
-            graph = _download_with_retries(
-                lambda: ox.graph_from_bbox(
-                    bbox=route_bbox(start, destination, padding_degrees),
-                    network_type="drive",
-                    simplify=True,
-                )
-            )
+        )
     except RuntimeError:
         raise
     except Exception as exc:
         raise RuntimeError("OpenStreetMap road data could not be retrieved for both locations.") from exc
     if graph.number_of_nodes() == 0:
         raise RuntimeError("The selected area contains no usable road network.")
+    try:
+        CACHE_DIRECTORY.mkdir(parents=True, exist_ok=True)
+        ox.save_graphml(graph, filepath=cache_path)
+    except Exception:
+        # A cache write must never make an otherwise valid route fail.
+        pass
     return graph
 
 

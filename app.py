@@ -7,7 +7,7 @@ import streamlit as st
 from streamlit_folium import st_folium
 
 from benchmarks import compare_algorithms, path_rows
-from config import CITY_OPTIONS, DEFAULT_RADIUS_METRES, MAX_RADIUS_METRES
+from config import CITY_OPTIONS, DEFAULT_RADIUS_LABEL, NETWORK_PADDING_METRES, RADIUS_OPTIONS_KM
 from map_utils import create_map
 from road_network import (
     closure_copy,
@@ -21,11 +21,19 @@ from visualization import comparison_chart, results_frame
 
 
 @st.cache_resource(show_spinner=False)
-def load_route_graph(origin_latitude: float, origin_longitude: float, destination_latitude: float, destination_longitude: float, padding_degrees: float):
+def load_route_graph(
+    origin_latitude: float,
+    origin_longitude: float,
+    destination_latitude: float,
+    destination_longitude: float,
+    padding_degrees: float,
+    radius_km: int,
+):
     return retrieve_graph_for_locations(
         (origin_latitude, origin_longitude),
         (destination_latitude, destination_longitude),
         padding_degrees,
+        radius_km,
     )
 
 
@@ -41,7 +49,7 @@ st.markdown(
 with st.sidebar:
     st.header("Route setup")
     city = st.selectbox("Location suggestion", CITY_OPTIONS)
-    st.caption("For a reliable demo, choose two locations in the same city or within 60 km.")
+    st.caption("Larger study areas may take longer and use more memory.")
     start_text = st.text_input(
         "Origin",
         value=st.session_state.get("start_text", ""),
@@ -53,7 +61,18 @@ with st.sidebar:
         placeholder="Address or 'latitude, longitude'",
     )
     algorithm_name = st.selectbox("Primary algorithm", ["Dijkstra", "A*", "BFS"])
-    radius = st.slider("Network padding (metres)", 500, MAX_RADIUS_METRES, DEFAULT_RADIUS_METRES, 250)
+    radius_label = st.selectbox(
+        "Road-network search radius",
+        list(RADIUS_OPTIONS_KM),
+        index=list(RADIUS_OPTIONS_KM).index(DEFAULT_RADIUS_LABEL),
+        help="The selected value is passed to OSMnx as metres. Larger areas may require more time and memory.",
+    )
+    radius_km = RADIUS_OPTIONS_KM[radius_label]
+    if radius_km >= 150:
+        st.warning(
+            f"{radius_label} may download a large road network and take longer. "
+            "Use Local for normal demonstrations."
+        )
     compare = st.checkbox("Run algorithm race", value=True)
     calculate = st.button("Calculate route", type="primary", use_container_width=True)
 
@@ -67,13 +86,14 @@ if calculate:
         try:
             origin = geocode_location(origin_query)
             destination = geocode_location(destination_query)
-            padding_degrees = radius / 111_000
+            padding_degrees = NETWORK_PADDING_METRES / 111_000
             graph = load_route_graph(
                 origin["latitude"],
                 origin["longitude"],
                 destination["latitude"],
                 destination["longitude"],
                 padding_degrees,
+                radius_km,
             )
             source = nearest_node(graph, origin["latitude"], origin["longitude"])
             target = nearest_node(graph, destination["latitude"], destination["longitude"])
@@ -98,6 +118,8 @@ if calculate:
                 start_text=start_text,
                 destination_text=destination_text,
                 place=f"{origin['display_name']} → {destination['display_name']}",
+                radius_label=radius_label,
+                radius_km=radius_km,
                 selected_algorithm=algorithm_name,
                 compare=compare,
             )
@@ -118,7 +140,10 @@ if graph is None or not results or not origin or not destination:
 
 working = st.session_state.get("working_graph", graph)
 route = route_coordinates(working, selected.path) if selected and selected.found else None
-st.caption(f"Network: {graph.number_of_nodes():,} nodes · {graph.number_of_edges():,} edges")
+st.caption(
+    f"Network: {graph.number_of_nodes():,} nodes · {graph.number_of_edges():,} edges · "
+    f"Search radius: {st.session_state.get('radius_label', DEFAULT_RADIUS_LABEL)}"
+)
 
 map_col, info_col = st.columns([2.2, 1])
 with map_col:

@@ -2,7 +2,7 @@ import networkx as nx
 import pytest
 
 from benchmarks import compare_algorithms, path_cost
-from road_network import closure_copy, nearest_node, route_bbox, route_coordinates
+from road_network import closure_copy, nearest_node, radius_to_metres, route_bbox, route_coordinates
 
 
 def graph():
@@ -43,3 +43,10 @@ def test_route_bbox_contains_both_locations():
     assert west < 77.7 < east
     assert south < 12.9 < north
     assert south < 13.1 < north
+
+
+def test_radius_is_converted_from_kilometres_to_metres():
+    assert radius_to_metres(60) == 60_000
+    assert radius_to_metres(150) == 150_000
+    with pytest.raises(ValueError):
+        radius_to_metres(0)
