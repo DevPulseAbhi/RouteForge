@@ -2,7 +2,14 @@ import networkx as nx
 import pytest
 
 from benchmarks import compare_algorithms, path_cost
-from road_network import closure_copy, nearest_node, radius_to_metres, route_bbox, route_coordinates
+from road_network import (
+    closure_copy,
+    effective_search_radius_metres,
+    nearest_node,
+    radius_to_metres,
+    route_bbox,
+    route_coordinates,
+)
 
 
 def graph():
@@ -50,3 +57,9 @@ def test_radius_is_converted_from_kilometres_to_metres():
     assert radius_to_metres(150) == 150_000
     with pytest.raises(ValueError):
         radius_to_metres(0)
+
+
+def test_nearby_routes_use_a_compact_download_radius():
+    assert effective_search_radius_metres(2, 60) == 3500
+    assert effective_search_radius_metres(20, 60) == 12500
+    assert effective_search_radius_metres(20, 60) < radius_to_metres(60)

@@ -13,6 +13,7 @@ RouteForge is an interactive Streamlit route-analysis application for an MCA/DAA
 - Adaptive city/regional downloads: local routes use a midpoint radius and wider routes use a bounded bounding box.
 - Selectable search radii: Local (60 km), Regional (150 km), Intercity (300 km), and Extended (500 km).
 - GraphML caching prevents repeated downloads for the same endpoints and radius.
+- Local `.env` configuration for Overpass endpoints, request timeout, and user agent.
 - Route-path inspection and CSV export for a college demonstration or report.
 - Deterministic offline tests for algorithms, snapping, closures, and benchmarks.
 
@@ -42,7 +43,7 @@ interpreter that launches Streamlit.
 
 Enter an origin and destination, choose a primary algorithm, and select **Calculate route**. The application geocodes both locations, downloads one network containing both endpoints, snaps them to road nodes, calculates the route, fits the map to the result, and displays the measured analysis. The comparison table contains all algorithms when the race option is enabled. BFS is a minimum-hop demonstration and is not expected to match weighted route distance.
 
-For the best live demonstration, use two recognizable locations in the same city and keep **Local (60 km)** selected. Regional, Intercity, and Extended modes allow wider endpoint separation but can download much larger graphs and require substantially more memory and time. Downloaded GraphML files are stored in the ignored `cache/graphs/` directory and reused for matching endpoint/radius requests.
+For the best live demonstration, use two recognizable locations in the same city and keep **Local (60 km)** selected. Regional, Intercity, and Extended modes allow wider endpoint separation but can download much larger graphs and require substantially more memory and time. Downloaded GraphML files are stored in the ignored `cache/graphs/` directory and reused for matching endpoint/radius requests. For short routes, RouteForge uses a compact radius around the midpoint rather than downloading the full selected maximum span; this prevents a normal city route from appearing to search indefinitely. Wider routes use an endpoint-containing bounding box.
 
 ## Suggested college demonstration
 

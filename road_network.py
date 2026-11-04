@@ -6,6 +6,7 @@ from copy import deepcopy
 from functools import lru_cache
 from hashlib import sha256
 from math import asin, cos, hypot, radians, sin, sqrt
+import os
 from pathlib import Path
 import re
 from time import sleep
@@ -25,6 +26,22 @@ else:
 DEFAULT_RADIUS_KM = 60
 NETWORK_PADDING_METRES = 2500
 CACHE_DIRECTORY = Path(__file__).resolve().parent / "cache" / "graphs"
+ENV_FILE = Path(__file__).resolve().parent / ".env"
+
+
+def _load_local_env() -> None:
+    """Load simple KEY=VALUE settings without requiring another dependency."""
+    if not ENV_FILE.exists():
+        return
+    try:
+        for line in ENV_FILE.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            os.environ.setdefault(key.strip(), value.strip().strip("\"'"))
+    except OSError:
+        return
 
 
 def _great_circle_km(start: tuple[float, float], end: tuple[float, float]) -> float:
@@ -58,15 +75,35 @@ def route_bbox(
 
 def _configure_osmnx() -> None:
     if ox is not None:
+        _load_local_env()
         ox.settings.use_cache = True
-        ox.settings.requests_timeout = 90
-        ox.settings.http_user_agent = "RouteForge-college-project/1.0"
+        ox.settings.requests_timeout = int(os.getenv("ROUTEFORGE_REQUEST_TIMEOUT", "90"))
+        ox.settings.http_user_agent = os.getenv(
+            "ROUTEFORGE_USER_AGENT", "RouteForge-college-project/1.0"
+        )
 
 
 def radius_to_metres(radius_km: int | float) -> int:
     if radius_km <= 0:
         raise ValueError("Search radius must be positive.")
     return int(round(float(radius_km) * 1000))
+
+
+def effective_search_radius_metres(
+    distance_km: float,
+    radius_km: int | float,
+    padding_metres: int = NETWORK_PADDING_METRES,
+) -> int:
+    """Return a practical midpoint download radius for nearby endpoints."""
+    radius_to_metres(radius_km)
+    if distance_km < 0:
+        raise ValueError("Endpoint distance cannot be negative.")
+    if padding_metres <= 0:
+        raise ValueError("Network padding must be positive.")
+    return min(
+        radius_to_metres(radius_km),
+        max(padding_metres, int(round((distance_km * 1000) / 2 + padding_metres))),
+    )
 
 
 def _graph_cache_path(
@@ -101,8 +138,12 @@ def _load_cached_graph(path: Path) -> nx.MultiDiGraph | None:
 def _download_with_retries(loader):
     """Retry transient public Overpass failures without unbounded requests."""
     endpoints = [
-        "https://overpass-api.de/api",
-        "https://overpass.kumi.systems/api",
+        endpoint.strip()
+        for endpoint in os.getenv(
+            "ROUTEFORGE_OVERPASS_ENDPOINTS",
+            "https://overpass-api.de/api,https://overpass.kumi.systems/api",
+        ).split(",")
+        if endpoint.strip()
     ]
     last_error = None
     for attempt in range(3):
@@ -201,7 +242,6 @@ def retrieve_graph_for_locations(
     _validate_coordinates(start_lat, start_lon)
     _validate_coordinates(end_lat, end_lon)
     _configure_osmnx()
-    radius_metres = radius_to_metres(radius_km)
     distance_km = _great_circle_km(start, destination)
     if distance_km > float(radius_km):
         raise ValueError(
@@ -215,14 +255,23 @@ def retrieve_graph_for_locations(
     padding_degrees = max(padding_degrees, NETWORK_PADDING_METRES / 111_000)
     midpoint = ((start_lat + end_lat) / 2, (start_lon + end_lon) / 2)
     try:
-        graph = _download_with_retries(
-            lambda: ox.graph_from_point(
-                midpoint,
-                dist=radius_metres,
-                network_type="drive",
-                simplify=True,
+        if distance_km <= 25:
+            graph = _download_with_retries(
+                lambda: ox.graph_from_point(
+                    midpoint,
+                    dist=effective_search_radius_metres(distance_km, radius_km),
+                    network_type="drive",
+                    simplify=True,
+                )
             )
-        )
+        else:
+            graph = _download_with_retries(
+                lambda: ox.graph_from_bbox(
+                    bbox=route_bbox(start, destination, padding_degrees),
+                    network_type="drive",
+                    simplify=True,
+                )
+            )
     except RuntimeError:
         raise
     except Exception as exc:
